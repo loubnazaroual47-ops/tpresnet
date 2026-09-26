@@ -1,0 +1,262 @@
+\documentclass[a4paper,11pt]{article}
+
+% ===================== PACKAGES =====================
+\usepackage[french]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{fancyhdr}
+
+% ===================== MISE EN PAGE =====================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Rapport de synthèse -- Deep Residual Learning (ResNet)}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!50!black,
+    urlcolor=blue!50!black,
+    citecolor=blue!50!black
+}
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=false,
+    showstringspaces=false,
+    frame=single,
+    backgroundcolor=\color{gray!5},
+    tabsize=4
+}
+
+\title{\textbf{Rapport de synthèse} \\[0.3cm] \Large Deep Residual Learning for Image Recognition \\[0.1cm] \large He, Zhang, Ren, Sun -- Microsoft Research (2015)}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    {\Large Deep Residual Learning for Image Recognition}\\[0.3cm]
+    {\large He, Zhang, Ren, Sun --- Microsoft Research, 2015}\\[0.3cm]
+    {\normalsize arXiv:1512.03385}\\[2cm]
+
+    \rule{\linewidth}{0.5mm}\\[0.4cm]
+    {\Large \textbf{ILSVRC \& COCO 2015}}\\[0.2cm]
+    {\large 1\textsuperscript{ère} place : classification ImageNet, détection ImageNet/COCO,\\ localisation ImageNet, segmentation COCO}\\[0.4cm]
+    \rule{\linewidth}{0.5mm}\\[3cm]
+
+    \vfill
+     \begin{flushright}
+        \large \textbf{Réalisé par :} Zaroual loubna  \\[0.3cm]
+         \large \textbf{Encadré par :} P.Mohamed Benaddy  \\[0.3cm]
+        \large \today
+    \end{flushright}
+ 
+    
+\end{titlepage}
+
+
+\tableofcontents
+\newpage
+
+% =========================================================
+\section{Contexte et problématique}
+% =========================================================
+Les auteurs partent d'un constat empirique surprenant : sur ImageNet comme sur CIFAR-10, un réseau convolutif « \emph{plain} » (empilement simple de couches, sans mécanisme particulier) de 56 couches obtient une erreur d'entraînement et de test plus élevée qu'un réseau plain de 20 couches --- alors que le réseau profond a strictement plus de capacité de représentation.
+
+Ce phénomène, appelé \textbf{problème de dégradation}, présente deux caractéristiques importantes :
+\begin{itemize}
+    \item ce n'est pas de l'\emph{overfitting} : l'erreur d'entraînement elle-même augmente avec la profondeur ;
+    \item ce n'est pas non plus expliqué par la disparition de gradient (\emph{vanishing gradient}), déjà atténuée par l'initialisation normalisée et la \emph{Batch Normalization}.
+\end{itemize}
+
+\paragraph{Argument théorique.} Si l'on prend un réseau peu profond et qu'on lui ajoute des couches supplémentaires configurées comme des applications identité, le réseau plus profond ne devrait \emph{jamais} faire pire que le réseau peu profond, puisqu'une solution par construction existe. Le fait que les solveurs de type SGD ne parviennent pas à trouver une solution au moins aussi bonne indique une \textbf{difficulté d'optimisation}, et non une limite de capacité du modèle.
+
+% =========================================================
+\section{Contribution principale : l'apprentissage résiduel}
+% =========================================================
+Plutôt que de faire apprendre directement à un empilement de couches la fonction cible $H(x)$, les auteurs proposent de lui faire apprendre la \textbf{fonction résiduelle} :
+$$F(x) := H(x) - x$$
+la sortie du bloc étant alors reconstruite comme :
+$$y = F(x) + x$$
+grâce à une \textbf{connexion de raccourci} (\emph{shortcut connection}) qui effectue une simple addition élément par élément entre l'entrée du bloc et sa sortie.
+
+\subsection{Justification}
+\begin{itemize}
+    \item Si l'application identité est optimale pour un bloc donné, il est beaucoup plus facile pour le solveur de pousser les poids de $F$ vers zéro que d'apprendre une identité exacte au travers de plusieurs couches non linéaires ;
+    \item Les raccourcis identité n'ajoutent ni paramètre ni coût de calcul significatif (une simple addition), ce qui permet de comparer un réseau plain et son équivalent résiduel à nombre de paramètres, profondeur et coût strictement identiques ;
+    \item Quand les dimensions changent (doublement du nombre de filtres), deux options sont comparées :
+    \begin{enumerate}
+        \item[(A)] raccourci identité complété par du \emph{zero-padding} (aucun paramètre supplémentaire) ;
+        \item[(B)] raccourci de projection via une convolution $1\times 1$.
+    \end{enumerate}
+    Les deux fonctionnent bien ; l'option B est légèrement meilleure mais plus coûteuse.
+\end{itemize}
+
+\subsection{Formulation}
+Pour un bloc à deux couches :
+$$F(x, \{W_i\}) = W_2 \cdot \sigma(W_1 \cdot x)$$
+où $\sigma$ est la fonction \texttt{ReLU} (biais omis). La non-linéarité finale est appliquée après l'addition :
+$$y = \sigma\big(F(x) + x\big)$$
+
+% =========================================================
+\section{Architectures étudiées}
+% =========================================================
+
+\subsection{Blocs de base et blocs « bottleneck »}
+Pour ImageNet, les auteurs déclinent des réseaux de 18, 34, 50, 101 et 152 couches :
+\begin{itemize}
+    \item Les versions \textbf{18/34 couches} utilisent un bloc résiduel « simple » à deux couches $3\times 3$ ;
+    \item Pour les versions plus profondes (\textbf{50/101/152}), un bloc \textbf{« bottleneck »} à trois couches ($1\times1$, $3\times3$, $1\times1$) est utilisé : les convolutions $1\times1$ réduisent puis restaurent la dimensionnalité, laissant la convolution $3\times3$ opérer sur un espace de dimension réduite, ce qui maintient un coût de calcul comparable tout en permettant d'empiler beaucoup plus de blocs.
+\end{itemize}
+
+Remarquablement, le \textbf{ResNet-152}, bien que 8 fois plus profond que VGG-19, a une complexité (11,3 milliards de FLOPs) \emph{inférieure} à celle de VGG-16/19 (15,3 / 19,6 milliards de FLOPs).
+
+\subsection{Détails d'entraînement (ImageNet)}
+\begin{itemize}
+    \item \textbf{Augmentation d'échelle} : redimensionnement avec le petit côté échantillonné aléatoirement dans $[256, 480]$, puis recadrage aléatoire $224\times224$ (+ retournement horizontal) ;
+    \item \textbf{Batch Normalization} appliquée après chaque convolution et avant l'activation ; pas de \emph{dropout} ;
+    \item \textbf{SGD}, mini-lots de 256, taux d'apprentissage initial $0{,}1$ divisé par 10 aux paliers, jusqu'à $60\times10^4$ itérations ; \emph{weight decay} $0{,}0001$, \emph{momentum} $0{,}9$.
+\end{itemize}
+
+% =========================================================
+\section{Résultats expérimentaux}
+% =========================================================
+
+\subsection{ImageNet --- réseaux plain vs résiduels (top-1, 10-crop)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Profondeur} & \textbf{Plain (err. top-1 \%)} & \textbf{ResNet (err. top-1 \%)} \\
+\midrule
+18 couches & 27,94 & 27,88 \\
+34 couches & 28,54 & 25,03 \\
+\bottomrule
+\end{tabular}
+\caption{Comparaison des taux d'erreur top-1 entre réseaux plain et résiduels sur ImageNet.}
+\end{table}
+
+À 18 couches, plain et résiduel sont comparables (le problème de dégradation n'est pas encore marqué), mais le ResNet converge plus vite. À 34 couches, le renversement est net : le \textbf{ResNet-34 fait mieux que le ResNet-18} (+2,8 points), alors que le \textbf{plain-34 fait pire que le plain-18} --- la dégradation est résolue par les raccourcis résiduels.
+
+\subsection{Meilleurs résultats single-model sur ImageNet (top-5)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lc}
+\toprule
+\textbf{Modèle} & \textbf{Top-5 (val, \%)} \\
+\midrule
+VGG-16 & 9,33 (top-1 : 28,07) \\
+GoogLeNet & 9,15 \\
+PReLU-net & 7,38 \\
+ResNet-50 & 6,71 \\
+ResNet-101 & 6,05 \\
+ResNet-152 & 5,71 (top-5 : 4,49 en full test) \\
+\bottomrule
+\end{tabular}
+\caption{Comparaison des meilleurs résultats single-model sur ImageNet.}
+\end{table}
+
+L'ensemble de plusieurs ResNets (dont deux ResNet-152) atteint \textbf{3,57\% d'erreur top-5} sur le jeu de test ImageNet, remportant la 1\textsuperscript{ère} place du concours de classification ILSVRC 2015 --- un résultat qui surpasse à lui seul tous les ensembles précédemment publiés, même en single-model.
+
+\subsection{CIFAR-10 : de 20 à 1202 couches}
+Sur CIFAR-10, les auteurs comparent des réseaux plain/résiduels de 20, 32, 44, 56 et 110 couches (identité pure, sans paramètre supplémentaire). Le meilleur résultat (\textbf{ResNet-110}, 1,7M paramètres) atteint \textbf{6,43\%} d'erreur, comparable ou meilleur que des architectures beaucoup plus larges comme les \emph{Highway Networks}.
+
+Un réseau de \textbf{1202 couches} est aussi entraîné avec succès (erreur d'entraînement $< 0{,}1\%$), mais son erreur de test (7,93\%) est légèrement supérieure à celle du ResNet-110, un effet attribué au surapprentissage sur ce petit jeu de données plutôt qu'à un problème d'optimisation.
+
+\subsection{Détection d'objets et segmentation (transfert)}
+En remplaçant simplement le \emph{backbone} VGG-16 par ResNet-101 dans \textbf{Faster R-CNN}, sans autre changement, les auteurs obtiennent :
+\begin{itemize}
+    \item \textbf{+3,2 points de mAP} sur PASCAL VOC 2007 ($73{,}2 \rightarrow 76{,}4$) ;
+    \item un \textbf{gain relatif de 28\%} sur la métrique standard COCO (mAP@[.5,.95] : $21{,}2 \rightarrow 27{,}2$).
+\end{itemize}
+
+Ces gains, uniquement dus à la qualité des représentations apprises, ont permis à l'équipe de remporter les 1\textsuperscript{ères} places en détection ImageNet, détection COCO, segmentation COCO et localisation ImageNet lors des compétitions ILSVRC \& COCO 2015.
+
+% =========================================================
+\section{Analyse et discussion}
+% =========================================================
+\begin{itemize}
+    \item Les réponses (écart-type) de chaque couche résiduelle sont en moyenne plus faibles que celles des couches plain équivalentes, et diminuent encore avec la profondeur : cela soutient l'hypothèse que les fonctions résiduelles apprises sont en général proches de zéro, cohérent avec l'idée de préconditionnement autour de l'identité ;
+    \item Les raccourcis « identité » (sans paramètre) sont préférés aux raccourcis « projection » : les gains de ces derniers sont marginaux, pour un coût mémoire/calcul supérieur, en particulier dans les architectures \emph{bottleneck} où un raccourci de projection doublerait la complexité ;
+    \item Le principe se généralise au-delà de la classification d'images : détection, localisation et segmentation en bénéficient directement, simplement en changeant le réseau \emph{backbone}.
+\end{itemize}
+
+% =========================================================
+\section{Conclusion}
+% =========================================================
+Ce papier introduit l'\textbf{apprentissage résiduel} comme un cadre simple, générique et quasi gratuit en calcul pour entraîner des réseaux de neurones très profonds (jusqu'à 152 couches sur ImageNet, et plus de 1000 sur CIFAR-10), en résolvant le problème de dégradation observé pour les réseaux « plain » classiques. \textbf{ResNet} est devenu depuis une architecture de référence, à la base d'un très grand nombre de modèles de vision par ordinateur ultérieurs.
+
+% =========================================================
+\section{Démonstration complémentaire (notebook)}
+% =========================================================
+Un notebook Jupyter joint à ce rapport (\texttt{resnet\_demo.ipynb}) illustre, à très petite échelle et en NumPy pur, le principe central du papier : un perceptron multicouche « plain » profond (10 blocs) obtient une erreur d'entraînement nettement supérieure à sa version peu profonde (3 blocs) sur un jeu de données jouet, alors que l'ajout de raccourcis résiduels identiques résout ce problème de dégradation.
+
+Il ne s'agit pas d'une reproduction des expériences ImageNet/CIFAR du papier (qui nécessiteraient un GPU et un framework de deep learning), mais d'une démonstration pédagogique du même phénomène d'optimisation, avec code et résultats exécutés.
+
+% =========================================================
+\section{Références}
+% =========================================================
+\begin{thebibliography}{9}
+
+\bibitem{resnet}
+He, K., Zhang, X., Ren, S., \& Sun, J. (2015).
+\textit{Deep Residual Learning for Image Recognition}.
+arXiv:1512.03385.
+
+\bibitem{vgg}
+Simonyan, K., \& Zisserman, A. (2014).
+\textit{Very Deep Convolutional Networks for Large-Scale Image Recognition}.
+arXiv:1409.1556.
+
+\bibitem{googlenet}
+Szegedy, C., Liu, W., Jia, Y., et al. (2015).
+\textit{Going Deeper with Convolutions}.
+CVPR 2015.
+
+\bibitem{prelu}
+He, K., Zhang, X., Ren, S., \& Sun, J. (2015).
+\textit{Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification}.
+ICCV 2015.
+
+\bibitem{fasterrcnn}
+Ren, S., He, K., Girshick, R., \& Sun, J. (2015).
+\textit{Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks}.
+NeurIPS 2015.
+
+\bibitem{imagenet}
+Russakovsky, O., Deng, J., Su, H., et al. (2015).
+\textit{ImageNet Large Scale Visual Recognition Challenge}.
+International Journal of Computer Vision, 115(3), 211--252.
+
+\bibitem{coco}
+Lin, T.Y., Maire, M., Belongie, S., et al. (2014).
+\textit{Microsoft COCO: Common Objects in Context}.
+ECCV 2014.
+
+\bibitem{highway}
+Srivastava, R.K., Greff, K., \& Schmidhuber, J. (2015).
+\textit{Highway Networks}.
+arXiv:1505.00387.
+
+\end{thebibliography}
+
+\end{document}
